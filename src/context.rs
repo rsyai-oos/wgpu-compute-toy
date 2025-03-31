@@ -98,7 +98,14 @@ pub async fn init_wgpu(width: u32, height: u32, bind_id: &str) -> Result<WgpuCon
         // dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
         flags: wgpu::InstanceFlags::default(),
         // gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
-        backend_options: wgpu::BackendOptions::default(),
+        backend_options: wgpu::BackendOptions {
+            gl: wgpu::GlBackendOptions {
+                gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
+            },
+            dx12: wgpu::Dx12BackendOptions {
+                shader_compiler: wgpu::Dx12Compiler::Fxc,
+            },
+        },
     });
 
     let surface = unsafe {
