@@ -20,11 +20,10 @@ mod winit {
         path::Path,
         sync::atomic::{AtomicBool, Ordering},
     };
-    use wgputoy::context::init_wgpu;
     use wgputoy::WgpuToyRenderer;
+    use wgputoy::context::init_wgpu;
     use winit::{
         event::{ElementState, Event, KeyEvent, WindowEvent},
-        event_loop::ControlFlow,
         keyboard::{KeyCode, PhysicalKey},
     };
 
@@ -119,9 +118,11 @@ mod winit {
         let screen_size = wgputoy.wgpu.window.inner_size();
         let event_loop = std::mem::take(&mut wgputoy.wgpu.event_loop).unwrap();
         let device_clone = wgputoy.wgpu.device.clone();
-        std::thread::spawn(move || loop {
-            device_clone.poll(wgpu::Maintain::Wait);
-            std::thread::yield_now();
+        std::thread::spawn(move || {
+            loop {
+                device_clone.poll(wgpu::Maintain::Wait);
+                std::thread::yield_now();
+            }
         });
 
         let mut watcher;
@@ -131,11 +132,15 @@ mod winit {
             let event_loop_proxy = event_loop.create_proxy();
             let watcher_res =
                 notify::recommended_watcher(move |event: Result<notify::Event>| match event {
-                    Ok(_) => {
-                        let res = NEEDS_REBUILD.store(true, Ordering::Relaxed);
-                        // for the event loop to run
-                        event_loop_proxy.send_event(()).unwrap();
-                        res
+                    Ok(notify_event) => {
+                        println!("event: {:?}", notify_event);
+                        if notify_event.kind.is_modify() {
+                            log::info!("File changed, rebuilding...");
+                            let res = NEEDS_REBUILD.store(true, Ordering::Relaxed);
+                            // for the event loop to run
+                            event_loop_proxy.send_event(()).unwrap();
+                            res
+                        }
                     }
                     Err(err) => log::error!("Error watching file: {err}"),
                 });

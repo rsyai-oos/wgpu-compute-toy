@@ -4,9 +4,10 @@ pub mod context;
 mod pp;
 mod utils;
 
+use context::WgpuContext;
 #[cfg(feature = "winit")]
 use context::init_wgpu;
-use context::WgpuContext;
+use image::ImageDecoder;
 use lazy_regex::regex;
 use pp::{SourceMap, WGSLError};
 use std::collections::HashMap;
@@ -44,10 +45,11 @@ impl SuccessCallback {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(unused)]
 struct SuccessCallback(Option<()>);
 
 struct ComputePipeline {
-    name: String,
+    _name: String,
     workgroup_size: [u32; 3],
     workgroup_count: Option<[u32; 3]>,
     dispatch_once: bool,
@@ -67,6 +69,7 @@ pub struct WgpuToyRenderer {
     compute_pipelines: Vec<ComputePipeline>,
     compute_bind_group: wgpu::BindGroup,
     compute_bind_group_layout: wgpu::BindGroupLayout,
+    #[cfg(target_arch = "wasm32")]
     on_success_cb: SuccessCallback,
     pass_f32: bool,
     screen_blitter: blit::Blitter,
@@ -124,6 +127,7 @@ impl WgpuToyRenderer {
             ),
             wgpu,
             bindings,
+            #[cfg(target_arch = "wasm32")]
             on_success_cb: SuccessCallback(None),
             pass_f32: false,
             query_set: None,
@@ -178,6 +182,7 @@ impl WgpuToyRenderer {
                 }
                 SurfaceError::OutOfMemory => log::error!("Out of GPU Memory!"),
                 SurfaceError::Timeout => log::warn!("Surface Timeout"),
+                SurfaceError::Other => log::warn!("Some other error"),
             },
             Ok(f) => {
                 let (staging_buffer, _) = self.render_to(&f);
@@ -229,7 +234,7 @@ impl WgpuToyRenderer {
             }
         }
         let mut dispatch_counter = 0;
-        for (pass_index, p) in self.compute_pipelines.iter().enumerate() {
+        for (_pass_index, p) in self.compute_pipelines.iter().enumerate() {
             if !p.dispatch_once || self.bindings.time.host.frame == 0 {
                 for i in 0..p.dispatch_count {
                     let mut compute_pass = encoder.begin_compute_pass(&Default::default());
@@ -267,13 +272,13 @@ impl WgpuToyRenderer {
                     */
                     drop(compute_pass);
                     encoder.copy_texture_to_texture(
-                        wgpu::ImageCopyTexture {
+                        wgpu::TexelCopyTextureInfo {
                             texture: self.bindings.tex_write.texture(),
                             mip_level: 0,
                             origin: wgpu::Origin3d::ZERO,
                             aspect: wgpu::TextureAspect::All,
                         },
-                        wgpu::ImageCopyTexture {
+                        wgpu::TexelCopyTextureInfo {
                             texture: self.bindings.tex_read.texture(),
                             mip_level: 0,
                             origin: wgpu::Origin3d::ZERO,
@@ -543,7 +548,7 @@ fn passSampleLevelBilinearRepeat(pass_index: int, uv: float2, lod: float) -> flo
         self.compute_pipelines = entry_points
             .iter()
             .map(|entry_point| ComputePipeline {
-                name: entry_point.0.clone(),
+                _name: entry_point.0.clone(),
                 workgroup_size: entry_point.1,
                 workgroup_count: source.workgroup_count.get(&entry_point.0).cloned(),
                 dispatch_once: *source.dispatch_once.get(&entry_point.0).unwrap_or(&false),
@@ -708,18 +713,21 @@ fn passSampleLevelBilinearRepeat(pass_index: int, uv: float2, lod: float) -> flo
     pub fn load_channel_hdr(&mut self, index: usize, bytes: &[u8]) -> Result<(), String> {
         let now = instant::Instant::now();
         let decoder = image::codecs::hdr::HdrDecoder::new(bytes).map_err(|e| e.to_string())?;
+        let (width, height) = decoder.dimensions();
         let meta = decoder.metadata();
-        let pixels = decoder.read_image_native().map_err(|e| e.to_string())?;
-        let bytes: Vec<u8> = pixels
-            .iter()
-            .flat_map(|p| [p.c[0], p.c[1], p.c[2], p.e])
-            .collect();
+        let mut pixels = vec![0u8; width as usize *height as usize *4];
+        let _ = decoder.read_image(&mut pixels);
+        // let pixels = decoder.read_image_native().map_err(|e| e.to_string())?;
+        // let bytes: Vec<u8> = pixels
+        //     .iter()
+        //     .flat_map(|p| [p.c[0], p.c[1], p.c[2], p.e])
+        //     .collect();
         self.bindings.channels[index].set_texture(
             blit::Blitter::new(
                 &self.wgpu,
                 &create_texture_from_image(
                     &self.wgpu,
-                    &bytes,
+                    &pixels,
                     meta.width,
                     meta.height,
                     wgpu::TextureFormat::Rgba8Unorm,
@@ -768,7 +776,7 @@ fn create_texture_from_image(
     wgpu.queue.write_texture(
         texture.as_image_copy(),
         rgba,
-        wgpu::ImageDataLayout {
+        wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(4 * width),
             rows_per_image: Some(height),

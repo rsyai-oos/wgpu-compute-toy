@@ -93,11 +93,12 @@ pub async fn init_wgpu(width: u32, height: u32, bind_id: &str) -> Result<WgpuCon
     #[cfg(target_arch = "wasm32")]
     let window = init_window(bind_id).map_err(|e| e.to_string())?;
 
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
         backends: wgpu::Backends::PRIMARY,
-        dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
+        // dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
         flags: wgpu::InstanceFlags::default(),
-        gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
+        // gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
+        backend_options: wgpu::BackendOptions::default(),
     });
 
     let surface = unsafe {
